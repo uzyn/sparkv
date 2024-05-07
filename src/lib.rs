@@ -41,6 +41,8 @@ impl SparKV {
         self.clear_expired_if_auto();
         self.ensure_capacity_ignore_key(key)?;
         self.ensure_item_size(value)?;
+        self.ensure_max_ttl(ttl)?;
+
         let item: KvEntry = KvEntry::new(key, value, ttl);
         let exp_item: ExpEntry = ExpEntry::from_kv_entry(&item);
 
@@ -131,6 +133,13 @@ impl SparKV {
     fn ensure_item_size(&self, value: &str) -> Result<(), Error> {
         if value.len() > self.config.max_item_size {
             return Err(Error::ItemSizeExceeded);
+        }
+        Ok(())
+    }
+
+    fn ensure_max_ttl(&self, ttl: std::time::Duration) -> Result<(), Error> {
+        if ttl > self.config.max_ttl {
+            return Err(Error::TTLTooLong);
         }
         Ok(())
     }
@@ -253,6 +262,31 @@ mod tests {
             sparkv.get_item("longest").unwrap().expired_at
                 > sparkv.get_item("longer").unwrap().expired_at
         );
+    }
+
+    #[test]
+    fn test_ensure_max_ttl() {
+        let mut config: Config = Config::new();
+        config.max_ttl = std::time::Duration::from_secs(3600);
+        config.default_ttl = std::time::Duration::from_secs(5000);
+        let mut sparkv = SparKV::with_config(config);
+
+        let set_result_long_def = sparkv.set("default is longer than max", "should fail");
+        assert!(set_result_long_def.is_err());
+        assert_eq!(set_result_long_def.unwrap_err(), Error::TTLTooLong);
+
+        let set_result_ok =
+            sparkv.set_with_ttl("shorter", "ok", std::time::Duration::from_secs(3599));
+        assert!(set_result_ok.is_ok());
+
+        let set_result_ok_2 =
+            sparkv.set_with_ttl("exact", "ok", std::time::Duration::from_secs(3600));
+        assert!(set_result_ok_2.is_ok());
+
+        let set_result_not_ok =
+            sparkv.set_with_ttl("not", "not ok", std::time::Duration::from_secs(3601));
+        assert!(set_result_not_ok.is_err());
+        assert_eq!(set_result_not_ok.unwrap_err(), Error::TTLTooLong);
     }
 
     #[test]

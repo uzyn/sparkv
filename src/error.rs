@@ -2,4 +2,5 @@
 pub enum Error {
     CapacityExceeded,
     ItemSizeExceeded,
+    TTLTooLong,
 }
