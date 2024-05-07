@@ -1,0 +1,10 @@
+[package]
+name = "sparkv"
+authors = ["U-Zyn Chua <chua@uzyn.com>"]
+version = "0.1.0"
+edition = "2021"
+description = "Expirable in-memory key-value store"
+keywords = ["key-value", "store", "database", "embedded-database", "expirable", "ttl", "cache", "ephemeral", "in-memory"]
+repository = "https://github.com/uzyn/sparkv"
+
+[dependencies]
