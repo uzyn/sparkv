@@ -15,10 +15,10 @@ impl ExpEntry {
         }
     }
 
-    pub fn from_kv_item(kv_item: &KvEntry) -> Self {
+    pub fn from_kv_entry(kv_entry: &KvEntry) -> Self {
         Self {
-            key: kv_item.key.clone(),
-            expired_at: kv_item.expired_at,
+            key: kv_entry.key.clone(),
+            expired_at: kv_entry.expired_at,
         }
     }
 
@@ -58,14 +58,14 @@ mod tests {
 
     #[test]
     fn test_from_kventry() {
-        let kv_item = KvEntry::new(
+        let kv_entry = KvEntry::new(
             "keyFromKV",
             "value from KV",
             std::time::Duration::from_secs(10),
         );
-        let exp_item = ExpEntry::from_kv_item(&kv_item);
+        let exp_item = ExpEntry::from_kv_entry(&kv_entry);
         assert_eq!(exp_item.key, "keyFromKV");
-        assert_eq!(exp_item.expired_at, kv_item.expired_at);
+        assert_eq!(exp_item.expired_at, kv_entry.expired_at);
     }
 
     #[test]

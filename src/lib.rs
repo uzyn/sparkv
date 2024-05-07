@@ -9,7 +9,7 @@ pub use expentry::ExpEntry;
 pub use kventry::KvEntry;
 
 pub struct SparKV {
-    config: Config,
+    pub config: Config,
     data: std::collections::HashMap<String, KvEntry>,
     expiries: std::collections::BinaryHeap<ExpEntry>,
 }
@@ -42,7 +42,7 @@ impl SparKV {
         self.ensure_capacity_ignore_key(key)?;
         self.ensure_item_size(value)?;
         let item: KvEntry = KvEntry::new(key, value, ttl);
-        let exp_item: ExpEntry = ExpEntry::from_kv_item(&item);
+        let exp_item: ExpEntry = ExpEntry::from_kv_entry(&item);
 
         self.expiries.push(exp_item);
         self.data.insert(item.key.clone(), item);
@@ -90,8 +90,9 @@ impl SparKV {
             match peeked {
                 Some(exp_item) => {
                     if exp_item.is_expired() {
-                        let kv_item = self.data.get(&exp_item.key).unwrap();
-                        if kv_item.key == exp_item.key && kv_item.expired_at == exp_item.expired_at
+                        let kv_entry = self.data.get(&exp_item.key).unwrap();
+                        if kv_entry.key == exp_item.key
+                            && kv_entry.expired_at == exp_item.expired_at
                         {
                             cleared_count += 1;
                             self.delete(&exp_item.key);
