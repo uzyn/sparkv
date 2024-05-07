@@ -27,9 +27,9 @@ use sparkv::SparKV;
 
 let mut sparkv = SparKV::new();
 sparkv.set("your-key", "your-value"); // write
-sparkv.get("your-key", "your-value"); // read
+let value = sparkv.get("your-key").unwrap(); // read
 
-// Set with unique TTL
+// Write with unique TTL
 sparkv.set_with_ttl("longer", "your-value", std::time::Duration::from_secs(60));
 ```
 
