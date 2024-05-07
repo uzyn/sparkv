@@ -1,7 +1,7 @@
 [package]
 name = "sparkv"
 authors = ["U-Zyn Chua <chua@uzyn.com>"]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Expirable in-memory key-value store"
 keywords = ["key-value", "database", "embedded-database", "ttl", "in-memory"]
