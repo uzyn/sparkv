@@ -1,10 +1,10 @@
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Config {
-    max_items: usize,
-    max_item_size: usize,
-    max_ttl: std::time::Duration,
-    default_ttl: std::time::Duration,
-    auto_clear_expired: bool,
+    pub max_items: usize,
+    pub max_item_size: usize,
+    pub max_ttl: std::time::Duration,
+    pub default_ttl: std::time::Duration,
+    pub auto_clear_expired: bool,
 }
 
 impl Config {
