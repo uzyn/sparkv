@@ -4,11 +4,37 @@ SparKV is an expirable in-memory key-value store for Rust.
 
 ## Features
 
-1. Flexible item-level TTL, with a pre-defined default TTL.
-2. Automatically clear expired entries. Can be turn off in Config.
-3. String based key-value store.
-4. Enforceable value and store size.
+1. Flexible expiration duration (a.k.a. time-to-live or TTL) per entry instead of database-wide common TTL.
+    1. This is similar to that of DNS where each entries of the same domain can have its own unique TTL.
+2. Automatically clears expired entries by default.
+3. String-based key-value store.
+4. Fast data entry enforcements, including ensuring entry size, database size and max TTL.
 5. SparKV is intentionally not an LRU cache.
+6. Configurable.
+
+## Usage
+
+Add SparKV crate to your Cargo dependencies:
+
+```sh
+$ cargo add sparkv
+```
+
+Quick start
+
+```rust
+use sparkv::SparKV;
+
+let mut sparkv = SparKV::new();
+sparkv.set("your-key", "your-value"); // write
+sparkv.get("your-key", "your-value"); // read
+
+// Set with unique TTL
+sparkv.set_with_ttl("longer", "your-value", std::time::Duration::from_secs(60));
+```
+
+See `config.rs` for more configuration options.
+
 
 ## TODO
 
@@ -18,4 +44,4 @@ SparKV is an expirable in-memory key-value store for Rust.
 ## License
 
 MIT License<br>
-Copyright (c) 2024 U-Zyn Chua
+Copyright © 2024 U-Zyn Chua
