@@ -14,6 +14,27 @@ impl KvEntry {
             expired_at,
         }
     }
+
+    pub fn is_expired(&self) -> bool {
+        self.expired_at < std::time::Instant::now()
+    }
+}
+
+impl Ord for KvEntry {
+    // Match in opposite direction (min-heap), so that the smallest element is at the top.
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.expired_at.cmp(&other.expired_at) {
+            std::cmp::Ordering::Less => std::cmp::Ordering::Greater,
+            std::cmp::Ordering::Equal => std::cmp::Ordering::Equal,
+            std::cmp::Ordering::Greater => std::cmp::Ordering::Less,
+        }
+    }
+}
+
+impl PartialOrd for KvEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 #[cfg(test)]
