@@ -1,16 +1,16 @@
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KvEntry {
+#[derive(Debug, Clone)]
+pub struct KvEntry<V = String> {
     pub key: String,
-    pub value: String,
+    pub value: V,
     pub expired_at: std::time::Instant,
 }
 
-impl KvEntry {
-    pub fn new(key: &str, value: &str, expiration: std::time::Duration) -> Self {
+impl<V> KvEntry<V> {
+    pub fn new(key: &str, value: V, expiration: std::time::Duration) -> Self {
         let expired_at: std::time::Instant = std::time::Instant::now() + expiration;
         Self {
             key: String::from(key),
-            value: String::from(value),
+            value,
             expired_at,
         }
     }
@@ -22,7 +22,11 @@ mod tests {
 
     #[test]
     fn test_new() {
-        let item = KvEntry::new("key", "value", std::time::Duration::from_secs(10));
+        let item = KvEntry::new(
+            "key",
+            String::from("value"),
+            std::time::Duration::from_secs(10),
+        );
         assert_eq!(item.key, "key");
         assert_eq!(item.value, "value");
         assert!(item.expired_at > std::time::Instant::now() + std::time::Duration::from_secs(9));
