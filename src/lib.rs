@@ -47,16 +47,29 @@ impl<V> SparKV<V> {
         Some(item.value)
     }
 
+    /// Number of physically-present entries.
+    ///
+    /// This is an O(1) count that may include expired-but-unswept entries.
+    /// For the live view use [`get`](Self::get) / [`get_item`](Self::get_item),
+    /// or call [`clear_expired`](Self::clear_expired) first.
     pub fn len(&self) -> usize {
         self.data.len()
     }
 
+    /// Whether there are no physically-present entries.
+    ///
+    /// O(1) and physical, mirroring [`len`](Self::len): it may still report
+    /// `false` while every remaining entry is expired-but-unswept.
     pub fn is_empty(&self) -> bool {
         self.data.len() == 0
     }
 
+    /// Whether a live (non-expired) entry exists for `key`.
+    ///
+    /// Expiry-aware and O(1): consistent with [`get`](Self::get), it returns
+    /// `false` for an expired-but-unswept entry.
     pub fn contains_key(&self, key: &str) -> bool {
-        self.data.contains_key(key)
+        self.get_item(key).is_some()
     }
 
     pub fn clear_expired(&mut self) -> usize {
@@ -66,12 +79,13 @@ impl<V> SparKV<V> {
             match peeked {
                 Some(exp_item) => {
                     if exp_item.is_expired() {
-                        let kv_entry = self.data.get(&exp_item.key).unwrap();
-                        if kv_entry.key == exp_item.key
-                            && kv_entry.expired_at == exp_item.expired_at
-                        {
-                            cleared_count += 1;
-                            self.delete(&exp_item.key);
+                        if let Some(kv_entry) = self.data.get(&exp_item.key) {
+                            if kv_entry.key == exp_item.key
+                                && kv_entry.expired_at == exp_item.expired_at
+                            {
+                                cleared_count += 1;
+                                self.data.remove(&exp_item.key); // not self.delete() -> avoids re-entrant auto-clear recursion
+                            }
                         }
                         self.expiries.pop();
                     } else {
@@ -98,7 +112,9 @@ impl<V> SparKV<V> {
     }
 
     fn ensure_capacity_ignore_key(&self, key: &str) -> Result<(), Error> {
-        if self.contains_key(key) {
+        // Physical presence (not the expiry-aware public `contains_key`) so
+        // overwrite/capacity semantics stay identical regardless of expiry.
+        if self.data.contains_key(key) {
             return Ok(());
         }
         self.ensure_capacity()
@@ -429,6 +445,77 @@ mod tests {
         assert_eq!(cleared_count, 0); // no longer expiring
         assert_eq!(sparkv.expiries.len(), 2); // should have cleared the expiries
         assert_eq!(sparkv.len(), 2); // but not actually deleting
+    }
+
+    #[test]
+    fn test_contains_key_is_expiry_aware() {
+        let mut config: Config = Config::new();
+        config.auto_clear_expired = false;
+        let mut sparkv = SparKV::with_config(config);
+        _ = sparkv.set_with_ttl(
+            "expiring",
+            String::from("value"),
+            std::time::Duration::from_millis(1),
+        );
+        _ = sparkv.set_with_ttl(
+            "live",
+            String::from("value"),
+            std::time::Duration::from_secs(60),
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+
+        // Expired-but-unswept: contains_key agrees with get (both report absent).
+        assert!(!sparkv.contains_key("expiring"));
+        assert!(sparkv.get("expiring").is_none());
+        // Yet it is still physically present (not swept).
+        assert_eq!(sparkv.len(), 2);
+
+        // Live key is reported present.
+        assert!(sparkv.contains_key("live"));
+        assert_eq!(sparkv.get("live"), Some(String::from("value")));
+
+        assert!(!sparkv.contains_key("non-existent"));
+    }
+
+    #[test]
+    fn test_clear_expired_does_not_panic_on_deleted_key() {
+        let mut config: Config = Config::new();
+        config.auto_clear_expired = false;
+        let mut sparkv = SparKV::with_config(config);
+        _ = sparkv.set_with_ttl(
+            "gone",
+            String::from("value"),
+            std::time::Duration::from_millis(1),
+        );
+        // Delete leaves a stale ExpEntry on the heap that will later expire.
+        assert_eq!(sparkv.delete("gone"), Some(String::from("value")));
+        std::thread::sleep(std::time::Duration::from_millis(2));
+
+        // Must not panic on the unwrap of an already-removed key.
+        let cleared_count = sparkv.clear_expired();
+        assert_eq!(cleared_count, 0);
+        assert_eq!(sparkv.expiries.len(), 0); // stale entry popped
+        assert!(!sparkv.contains_key("gone"));
+    }
+
+    #[test]
+    fn test_clear_expired_does_not_recurse_under_default_config() {
+        // Default config has auto_clear_expired = true.
+        let mut sparkv = SparKV::new();
+        _ = sparkv.set_with_ttl(
+            "expiring",
+            String::from("value"),
+            std::time::Duration::from_millis(1),
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+
+        // A subsequent set triggers auto-clear; must not overflow the stack.
+        _ = sparkv.set("live", String::from("value"));
+
+        assert!(!sparkv.contains_key("expiring"));
+        assert!(sparkv.get("expiring").is_none());
+        assert_eq!(sparkv.get("live"), Some(String::from("value")));
+        assert_eq!(sparkv.len(), 1);
     }
 
     #[test]
