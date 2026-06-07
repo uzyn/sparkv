@@ -42,9 +42,13 @@ impl<V> SparKV<V> {
 
     pub fn delete(&mut self, key: &str) -> Option<V> {
         self.clear_expired_if_auto();
-        let item = self.data.remove(key)?;
-        // Does not delete from BinaryHeap as it's expensive.
-        Some(item.value)
+        self.delete_internal(key)
+    }
+
+    // Removes the data entry without triggering the auto-clear hook.
+    // Does not delete from BinaryHeap as it's expensive.
+    fn delete_internal(&mut self, key: &str) -> Option<V> {
+        self.data.remove(key).map(|item| item.value)
     }
 
     pub fn len(&self) -> usize {
@@ -66,12 +70,13 @@ impl<V> SparKV<V> {
             match peeked {
                 Some(exp_item) => {
                     if exp_item.is_expired() {
-                        let kv_entry = self.data.get(&exp_item.key).unwrap();
-                        if kv_entry.key == exp_item.key
-                            && kv_entry.expired_at == exp_item.expired_at
-                        {
-                            cleared_count += 1;
-                            self.delete(&exp_item.key);
+                        if let Some(kv_entry) = self.data.get(&exp_item.key) {
+                            if kv_entry.key == exp_item.key
+                                && kv_entry.expired_at == exp_item.expired_at
+                            {
+                                cleared_count += 1;
+                                self.delete_internal(&exp_item.key);
+                            }
                         }
                         self.expiries.pop();
                     } else {
@@ -463,5 +468,78 @@ mod tests {
         );
         assert_eq!(sparkv.expiries.len(), 3); // should have cleared the expiries
         assert_eq!(sparkv.len(), 3); // but not actually deleting
+    }
+
+    #[test]
+    fn test_clear_expired_no_recursion_with_auto_clear() {
+        // Item 1 regression: a live expired entry under default auto-clear must
+        // not cause clear_expired to recurse via delete -> stack overflow.
+        let mut sparkv = SparKV::new(); // default config: auto_clear_expired = true
+        _ = sparkv.set_with_ttl(
+            "expiring",
+            String::from("value"),
+            std::time::Duration::from_millis(1),
+        );
+        std::thread::sleep(std::time::Duration::from_millis(2));
+
+        // This triggers clear_expired_if_auto on a live expired entry.
+        _ = sparkv.set_with_ttl(
+            "fresh",
+            String::from("value"),
+            std::time::Duration::from_secs(60),
+        );
+
+        assert!(sparkv.get("expiring").is_none());
+        assert_eq!(sparkv.get("fresh"), Some(String::from("value")));
+        assert_eq!(sparkv.len(), 1);
+        assert_eq!(sparkv.expiries.len(), 1); // expired entry popped from heap
+    }
+
+    #[test]
+    fn test_clear_expired_skips_stale_heap_entry_no_panic() {
+        // Item 2 regression: a key deleted before its expiry leaves a stale heap
+        // entry. clear_expired must not unwrap None / panic on it; just pop it.
+        let mut config: Config = Config::new();
+        config.auto_clear_expired = false;
+        let mut sparkv = SparKV::with_config(config);
+        _ = sparkv.set_with_ttl(
+            "deleted",
+            String::from("value"),
+            std::time::Duration::from_millis(1),
+        );
+        assert_eq!(sparkv.delete("deleted"), Some(String::from("value")));
+        assert_eq!(sparkv.expiries.len(), 1); // heap entry left behind
+
+        std::thread::sleep(std::time::Duration::from_millis(2));
+
+        let cleared_count = sparkv.clear_expired();
+        assert_eq!(cleared_count, 0); // nothing live to clear
+        assert_eq!(sparkv.expiries.len(), 0); // stale heap entry popped
+        assert_eq!(sparkv.len(), 0);
+    }
+
+    #[test]
+    fn test_clear_expired_stale_entry_and_live_expired_with_auto_clear() {
+        // Combined: a deleted (stale) key plus a separate live expired key under
+        // default auto-clear. Must not panic, must not recurse, counts correct.
+        let mut sparkv = SparKV::new(); // default config: auto_clear_expired = true
+        _ = sparkv.set_with_ttl(
+            "deleted",
+            String::from("d"),
+            std::time::Duration::from_millis(1),
+        );
+        _ = sparkv.set_with_ttl(
+            "expiring",
+            String::from("e"),
+            std::time::Duration::from_millis(1),
+        );
+        assert_eq!(sparkv.delete("deleted"), Some(String::from("d")));
+        std::thread::sleep(std::time::Duration::from_millis(2));
+
+        let cleared_count = sparkv.clear_expired();
+        assert_eq!(cleared_count, 1); // only the live expired key is counted
+        assert!(sparkv.get("expiring").is_none());
+        assert_eq!(sparkv.len(), 0);
+        assert_eq!(sparkv.expiries.len(), 0); // both heap entries drained
     }
 }
