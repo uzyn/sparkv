@@ -1,19 +1,17 @@
 mod config;
 mod error;
-mod expentry;
 mod kventry;
 mod value_size;
 
 pub use config::Config;
 pub use error::Error;
-pub use expentry::ExpEntry;
 pub use kventry::KvEntry;
 pub use value_size::ValueSize;
 
 pub struct SparKV<V = String> {
     pub config: Config,
     data: std::collections::HashMap<String, KvEntry<V>>,
-    expiries: std::collections::BinaryHeap<ExpEntry>,
+    expiries: std::collections::BTreeMap<(std::time::Instant, String), ()>,
 }
 
 impl<V> SparKV<V> {
@@ -26,7 +24,7 @@ impl<V> SparKV<V> {
         SparKV {
             config,
             data: std::collections::HashMap::new(),
-            expiries: std::collections::BinaryHeap::new(),
+            expiries: std::collections::BTreeMap::new(),
         }
     }
 
@@ -43,7 +41,7 @@ impl<V> SparKV<V> {
     pub fn delete(&mut self, key: &str) -> Option<V> {
         self.clear_expired_if_auto();
         let item = self.data.remove(key)?;
-        // Does not delete from BinaryHeap as it's expensive.
+        self.expiries.remove(&(item.expired_at, item.key));
         Some(item.value)
     }
 
@@ -73,26 +71,16 @@ impl<V> SparKV<V> {
     }
 
     pub fn clear_expired(&mut self) -> usize {
+        let now = std::time::Instant::now();
         let mut cleared_count: usize = 0;
-        loop {
-            let peeked = self.expiries.peek().cloned();
-            match peeked {
-                Some(exp_item) => {
-                    if exp_item.is_expired() {
-                        if let Some(kv_entry) = self.data.get(&exp_item.key) {
-                            if kv_entry.key == exp_item.key
-                                && kv_entry.expired_at == exp_item.expired_at
-                            {
-                                cleared_count += 1;
-                                self.data.remove(&exp_item.key); // not self.delete() -> avoids re-entrant auto-clear recursion
-                            }
-                        }
-                        self.expiries.pop();
-                    } else {
-                        break;
-                    }
-                }
-                None => break,
+        while self
+            .expiries
+            .first_key_value()
+            .is_some_and(|((expired_at, _), _)| *expired_at < now)
+        {
+            if let Some(((_, key), _)) = self.expiries.pop_first() {
+                self.data.remove(&key); // not self.delete() -> avoids re-entrant auto-clear recursion
+                cleared_count += 1;
             }
         }
         cleared_count
@@ -145,10 +133,11 @@ impl<V: ValueSize> SparKV<V> {
         self.ensure_max_ttl(ttl)?;
 
         let item: KvEntry<V> = KvEntry::new(key, value, ttl);
-        let exp_item: ExpEntry = ExpEntry::from_kv_entry(&item);
-
-        self.expiries.push(exp_item);
-        self.data.insert(item.key.clone(), item);
+        let exp_at = item.expired_at;
+        if let Some(old) = self.data.insert(item.key.clone(), item) {
+            self.expiries.remove(&(old.expired_at, key.to_string()));
+        }
+        self.expiries.insert((exp_at, key.to_string()), ());
         Ok(())
     }
 
@@ -206,16 +195,35 @@ mod tests {
     }
 
     #[test]
+    fn test_expiry_index_stays_bounded_to_live_set() {
+        let mut config: Config = Config::new();
+        config.auto_clear_expired = false;
+        let mut sparkv = SparKV::with_config(config);
+
+        for i in 0..1000 {
+            _ = sparkv.set("same-key", format!("value{i}"));
+        }
+        assert_eq!(sparkv.get("same-key"), Some(String::from("value999")));
+        assert_eq!(sparkv.expiries.len(), 1);
+        assert_eq!(sparkv.data.len(), 1);
+
+        let deleted = sparkv.delete("same-key");
+        assert_eq!(deleted, Some(String::from("value999")));
+        assert_eq!(sparkv.expiries.len(), 0);
+        assert_eq!(sparkv.data.len(), 0);
+    }
+
+    #[test]
     fn test_set_get() {
         let mut sparkv = SparKV::new();
         _ = sparkv.set("keyA", String::from("value"));
         assert_eq!(sparkv.get("keyA"), Some(String::from("value")));
         assert_eq!(sparkv.expiries.len(), 1);
 
-        // Overwrite the value
+        // Overwrite the value: the index is replaced 1:1, not appended to.
         _ = sparkv.set("keyA", String::from("value2"));
         assert_eq!(sparkv.get("keyA"), Some(String::from("value2")));
-        assert_eq!(sparkv.expiries.len(), 2);
+        assert_eq!(sparkv.expiries.len(), 1);
 
         assert!(sparkv.get("non-existent").is_none());
     }
@@ -384,7 +392,7 @@ mod tests {
         let deleted_value = sparkv.delete("keyA");
         assert_eq!(deleted_value, Some(String::from("value")));
         assert!(sparkv.get("keyA").is_none());
-        assert_eq!(sparkv.expiries.len(), 1); // it does not delete
+        assert_eq!(sparkv.expiries.len(), 0); // index entry removed too
     }
 
     #[test]
@@ -438,13 +446,13 @@ mod tests {
             std::time::Duration::from_secs(60),
         );
         std::thread::sleep(std::time::Duration::from_millis(2));
-        assert_eq!(sparkv.expiries.len(), 3); // overwriting key does not update expiries
+        assert_eq!(sparkv.expiries.len(), 2); // overwriting key updates the index 1:1
         assert_eq!(sparkv.len(), 2);
 
         let cleared_count = sparkv.clear_expired();
         assert_eq!(cleared_count, 0); // no longer expiring
-        assert_eq!(sparkv.expiries.len(), 2); // should have cleared the expiries
-        assert_eq!(sparkv.len(), 2); // but not actually deleting
+        assert_eq!(sparkv.expiries.len(), 2); // nothing to clear
+        assert_eq!(sparkv.len(), 2);
     }
 
     #[test]
@@ -487,14 +495,14 @@ mod tests {
             String::from("value"),
             std::time::Duration::from_millis(1),
         );
-        // Delete leaves a stale ExpEntry on the heap that will later expire.
+        // Delete removes the index entry too, so nothing is left to expire.
         assert_eq!(sparkv.delete("gone"), Some(String::from("value")));
         std::thread::sleep(std::time::Duration::from_millis(2));
 
-        // Must not panic on the unwrap of an already-removed key.
+        // Clearing after a delete is a safe no-op.
         let cleared_count = sparkv.clear_expired();
         assert_eq!(cleared_count, 0);
-        assert_eq!(sparkv.expiries.len(), 0); // stale entry popped
+        assert_eq!(sparkv.expiries.len(), 0); // already removed on delete
         assert!(!sparkv.contains_key("gone"));
     }
 
