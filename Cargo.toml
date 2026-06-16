@@ -1,14 +1,16 @@
 [package]
 name = "sparkv"
 authors = ["U-Zyn Chua <chua@uzyn.com>"]
-version = "0.3.0"
+version = "0.2.0"
 edition = "2021"
-description = "Expirable in-memory key-value store"
-keywords = ["key-value", "database", "embedded-database", "ttl", "in-memory"]
+rust-version = "1.70"
+description = "Expirable in-memory key-value store with per-entry TTL and zero dependencies"
+keywords = ["key-value", "ttl", "cache", "in-memory", "no-dependencies"]
 categories = ["database-implementations", "data-structures", "caching"]
 license = "MIT"
 repository = "https://github.com/uzyn/sparkv"
+homepage = "https://github.com/uzyn/sparkv"
+documentation = "https://docs.rs/sparkv"
 readme = "README.md"
-homepage = "https://crates.io/crates/sparkv"
 
 [dependencies]
