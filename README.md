@@ -1,10 +1,10 @@
 # SparKV
 
-[![Crates.io](https://img.shields.io/crates/v/sparkv.svg)](https://crates.io/crates/sparkv)
+[![Crates.io](https://img.shields.io/badge/crates.io-v0.2.0-orange.svg)](https://crates.io/crates/sparkv)
 [![Documentation](https://docs.rs/sparkv/badge.svg)](https://docs.rs/sparkv)
 [![CI](https://github.com/uzyn/sparkv/actions/workflows/rust.yml/badge.svg)](https://github.com/uzyn/sparkv/actions/workflows/rust.yml)
 [![Dependencies](https://deps.rs/crate/sparkv/latest/status.svg)](https://deps.rs/crate/sparkv)
-[![License: MIT](https://img.shields.io/crates/l/sparkv.svg)](./LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 SparKV is an expirable in-memory key-value store for Rust with **no dependencies**.
 
